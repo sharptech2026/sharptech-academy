@@ -64,7 +64,13 @@ export function useCurrentUserState(): CurrentUserState {
 }
 
 function useSessionUserState(): CurrentUserState {
-  const { data, isPending } = authClient.useSession();
+  const { data, isPending, error } = authClient.useSession();
+
+  // If auth endpoint returns 404 (not configured on server), fall back to dev user
+  if (error && (error.status === 404 || error.message?.includes("404"))) {
+    return DEV_STATE;
+  }
+
   const id = data?.user.id;
   const displayName = data?.user.name ?? null;
   const primaryEmail = data?.user.email ?? null;
