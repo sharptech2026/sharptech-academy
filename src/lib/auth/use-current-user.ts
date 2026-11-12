@@ -66,8 +66,14 @@ export function useCurrentUserState(): CurrentUserState {
 function useSessionUserState(): CurrentUserState {
   const { data, isPending, error } = authClient.useSession();
 
-  // If auth endpoint returns 404 (not configured on server), fall back to dev user
-  if (error && (error.status === 404 || error.message?.includes("404"))) {
+  // If auth endpoint returns 404 (not configured on server) or any error preventing session,
+  // fall back to dev user. Error shape varies; be defensive.
+  const hasAuthError = !!error && (
+    (typeof error === "object" && "status" in error && (error as any).status === 404) ||
+    (typeof error === "object" && "message" in error && typeof (error as any).message === "string" && (error as any).message.includes("404")) ||
+    (Array.isArray(error) && error.some(e => typeof e === "object" && e !== null && ("status" in e && (e as any).status === 404 || "message" in e && typeof (e as any).message === "string" && (e as any).message.includes("404"))))
+  );
+  if (hasAuthError) {
     return DEV_STATE;
   }
 
