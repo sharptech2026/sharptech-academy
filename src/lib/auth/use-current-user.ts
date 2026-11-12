@@ -70,22 +70,18 @@ function useSessionUserState(): CurrentUserState {
 
   try {
     const result = authClient.useSession();
-    data = result.data;
-    isPending = result.isPending;
-    error = result.error;
+    data = result?.data ?? null;
+    isPending = result?.isPending ?? false;
+    error = result?.error ?? null;
   } catch {
-    // If useSession throws (e.g., during SSR or network error), fall back
+    // If useSession throws (e.g., during SSR, network error, or internal .length error), fall back
     return DEV_STATE;
   }
 
-  // If auth endpoint returns 404 (not configured on server) or any error preventing session,
-  // fall back to dev user. Error shape varies; be very defensive.
+  // If ANY error from auth client (including internal errors like "Cannot read properties of undefined"),
+  // fall back to dev user. Be extremely defensive.
   const hasAuthError = !!error && (
-    (typeof error === "object" && "status" in error && (error as any).status === 404) ||
-    (typeof error === "object" && "message" in error && typeof (error as any).message === "string" && (error as any).message.includes("404")) ||
-    (Array.isArray(error) && error.some(e => typeof e === "object" && e !== null && ("status" in e && (e as any).status === 404 || "message" in e && typeof (e as any).message === "string" && (e as any).message.includes("404")))) ||
-    // Catch any other error from auth client
-    (typeof error === "object" && error !== null)
+    typeof error === "object" || Array.isArray(error)
   );
   if (hasAuthError) {
     return DEV_STATE;
