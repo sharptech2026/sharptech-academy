@@ -3,6 +3,7 @@ import { useTranslation } from "@/lib/i18n";
 import { useProgress, useAuthSync } from "@/lib/progress";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { SignedIn, SignedOut, RedirectToSignIn, UserButton } from "@/lib/auth/gates";
+import { authEnabled } from "@/lib/auth/client";
 import {
   getProfile,
   updateProfile,
@@ -19,7 +20,7 @@ import {
   getSettings,
   updateSettings,
   getPublicProfile,
-} from "@/routes/api/social";
+} from "@/routes/api/-social";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -308,17 +309,23 @@ function SocialPage() {
     }
   };
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !authEnabled) {
     return (
       <SignedIn>
         <div className="min-h-screen bg-background flex items-center justify-center p-4">
           <div className="text-center max-w-md">
             <Users className="w-16 h-16 mx-auto text-muted mb-4" />
             <h2 className="text-2xl font-bold mb-2">{t("profileTitle")}</h2>
-            <p className="text-muted mb-6">{t("settingsTitle")}</p>
-            <Button size="lg" onClick={() => window.location.href = "/login"}>
-              {t("signIn")}
-            </Button>
+            <p className="text-muted mb-6">
+              {authEnabled
+                ? t("settingsTitle")
+                : "Funcionalidades sociais requerem autenticação com backend. Esta versão de demonstração usa apenas armazenamento local."}
+            </p>
+            {authEnabled && (
+              <Button size="lg" onClick={() => window.location.href = "/login"}>
+                {t("signIn")}
+              </Button>
+            )}
           </div>
         </div>
       </SignedIn>

@@ -1,5 +1,5 @@
 {
-  "url": "http://127.0.0.1:8080/",
+  "url": "http://127.0.0.1:8081",
   "viewports": {
     "desktop": {
       "width": 1280,
@@ -11,7 +11,15 @@
       "bodyTextHash": "f6b1e5024035ae2760ee345ffff4d355d257afbcf8529f85fd33585faed45ac9",
       "bodyTextPrefix": "SharpTech Academy Programar em lições curtas. Um conceito de cad",
       "horizontalOverflow": false,
-      "consoleErrors": [],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()"
+      ],
       "pageErrors": [],
       "screenshot": "C:\\Users\\user\\sharptech_academy\\screenshots\\app-builder-preview.png"
     },
@@ -25,7 +33,15 @@
       "bodyTextHash": "f6b1e5024035ae2760ee345ffff4d355d257afbcf8529f85fd33585faed45ac9",
       "bodyTextPrefix": "SharpTech Academy Programar em lições curtas. Um conceito de cad",
       "horizontalOverflow": false,
-      "consoleErrors": [],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "Failed to load resource: the server responded with a status of 404 ()"
+      ],
       "pageErrors": [],
       "screenshot": "C:\\Users\\user\\sharptech_academy\\screenshots\\app-builder-preview-mobile.png"
     }
