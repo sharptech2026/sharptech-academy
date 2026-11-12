@@ -64,23 +64,42 @@ export function useCurrentUserState(): CurrentUserState {
 }
 
 function useSessionUserState(): CurrentUserState {
-  const { data, isPending, error } = authClient.useSession();
+  let data: any = null;
+  let isPending = false;
+  let error: any = null;
+
+  try {
+    const result = authClient.useSession();
+    data = result.data;
+    isPending = result.isPending;
+    error = result.error;
+  } catch {
+    // If useSession throws (e.g., during SSR or network error), fall back
+    return DEV_STATE;
+  }
 
   // If auth endpoint returns 404 (not configured on server) or any error preventing session,
-  // fall back to dev user. Error shape varies; be defensive.
+  // fall back to dev user. Error shape varies; be very defensive.
   const hasAuthError = !!error && (
     (typeof error === "object" && "status" in error && (error as any).status === 404) ||
     (typeof error === "object" && "message" in error && typeof (error as any).message === "string" && (error as any).message.includes("404")) ||
-    (Array.isArray(error) && error.some(e => typeof e === "object" && e !== null && ("status" in e && (e as any).status === 404 || "message" in e && typeof (e as any).message === "string" && (e as any).message.includes("404"))))
+    (Array.isArray(error) && error.some(e => typeof e === "object" && e !== null && ("status" in e && (e as any).status === 404 || "message" in e && typeof (e as any).message === "string" && (e as any).message.includes("404")))) ||
+    // Catch any other error from auth client
+    (typeof error === "object" && error !== null)
   );
   if (hasAuthError) {
     return DEV_STATE;
   }
 
-  const id = data?.user.id;
-  const displayName = data?.user.name ?? null;
-  const primaryEmail = data?.user.email ?? null;
-  const profileImageUrl = data?.user.image ?? null;
+  // Also fall back if no data after pending resolves (signed out)
+  if (!isPending && !data?.user) {
+    return DEV_STATE;
+  }
+
+  const id = data?.user?.id;
+  const displayName = data?.user?.name ?? null;
+  const primaryEmail = data?.user?.email ?? null;
+  const profileImageUrl = data?.user?.image ?? null;
   const user = useMemo<AppUser | null>(
     () => (id ? { id, displayName, primaryEmail, profileImageUrl, isDevFallback: false } : null),
     [id, displayName, primaryEmail, profileImageUrl],
