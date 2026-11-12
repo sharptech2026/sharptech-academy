@@ -157,7 +157,7 @@ export function Academy() {
             <NavButton active={tab === "stats"} label={t("navStats")} onClick={() => setTab("stats")}>
               <BarChart2 className="h-5 w-5" />
             </NavButton>
-            <NavButton active={tab === "social"} label={t("navProfile")} onClick={() => setTab("social")}>
+            <NavButton active={tab === "social"} label="Social" onClick={() => setTab("social")}>
               <Users className="h-5 w-5" />
             </NavButton>
             <NavButton active={tab === "profile"} label={t("navProfile")} onClick={() => setTab("profile")}>
