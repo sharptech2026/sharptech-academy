@@ -7,15 +7,7 @@ import { checkAchievements, getNewAchievements, type AchievementId } from "@/lib
 import { generateCertificate, saveCertificate, hasCertificate } from "@/lib/certificates";
 import { markChallengeCompleted, getDailyChallenge } from "@/lib/daily-challenges";
 import { getCourse, courseLessons } from "@/lib/curriculum";
-import {
-  getProgress,
-  upsertProgress,
-  getCertificates,
-  saveCertificate as saveCertServer,
-  getDailyChallenges,
-  markDailyChallenge,
-  resetProgressServer,
-} from "@/routes/api/progress";
+// Server sync functions removed — this app uses localStorage only (no auth backend)
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 export type LessonRecord = {
@@ -253,11 +245,6 @@ export const useProgress = create<State>()(
           useProgress.getState().checkAndUnlockAchievements();
         }, 0);
 
-        // Sync to server if authenticated
-        if (state.isAuthenticated) {
-          get().syncToServer(newState);
-        }
-
         return gained;
       },
       finishTrain: (correct) => {
@@ -285,14 +272,7 @@ export const useProgress = create<State>()(
           unlockedAchievements: [],
           lastAchievementCheck: {},
         });
-        if (state.isAuthenticated) {
-          try {
-            await resetProgressServer();
-          } catch (e) {
-            console.error("Failed to reset server progress:", e);
-          }
-        }
-      },
+              },
       checkAndUnlockAchievements: () => {
         const state = get();
         const achievementState = {
@@ -349,89 +329,15 @@ export const useProgress = create<State>()(
         };
         set(newState);
 
-        // Sync to server if authenticated
-        if (state.isAuthenticated) {
-          get().syncToServer(newState);
-          try {
-            await markDailyChallenge({ challengeId: challenge.id, xpEarned: gained, bonus } as unknown as Parameters<typeof markDailyChallenge>[0]);
-          } catch (e) {
-            console.error("Failed to mark daily challenge on server:", e);
-          }
-        }
-
         return { xp: gained, bonus };
       },
       syncFromServer: async () => {
-        const state = get();
-        if (!state.isAuthenticated || state.syncing) return;
-        set({ syncing: true });
-        try {
-          const serverProgress = (await getProgress()) as ServerProgress | null;
-          if (serverProgress) {
-            set({
-              name: serverProgress.name,
-              onboarded: serverProgress.onboarded,
-              courseId: serverProgress.courseId,
-              xp: serverProgress.xp,
-              dailyXp: serverProgress.dailyXp,
-              dailyDate: serverProgress.dailyDate,
-              goal: serverProgress.goal,
-              streak: serverProgress.streak,
-              bestStreak: serverProgress.bestStreak,
-              lastActive: serverProgress.lastActive,
-              hearts: serverProgress.hearts,
-              heartsDate: serverProgress.heartsDate,
-              sound: serverProgress.sound,
-              theme: serverProgress.theme,
-              practiced: serverProgress.practiced,
-              completed: serverProgress.completed,
-              mistakes: serverProgress.mistakes,
-              answered: serverProgress.answered,
-              correctAnswers: serverProgress.correctAnswers,
-              activeDays: serverProgress.activeDays,
-              pendingTrain: serverProgress.pendingTrain,
-              unlockedAchievements: serverProgress.unlockedAchievements,
-              lastAchievementCheck: serverProgress.lastAchievementCheck,
-            });
-          }
-        } catch (e) {
-          console.error("Failed to sync from server:", e);
-        } finally {
-          set({ syncing: false });
-        }
+        // No auth backend — this app uses localStorage only
+        return;
       },
-      syncToServer: async (partial) => {
-        const state = get();
-        if (!state.isAuthenticated || state.syncing) return;
-        try {
-          const data = partial || {
-            name: state.name,
-            courseId: state.courseId,
-            xp: state.xp,
-            dailyXp: state.dailyXp,
-            dailyDate: state.dailyDate,
-            goal: state.goal,
-            streak: state.streak,
-            bestStreak: state.bestStreak,
-            lastActive: state.lastActive,
-            hearts: state.hearts,
-            heartsDate: state.heartsDate,
-            sound: state.sound,
-            theme: state.theme,
-            practiced: state.practiced,
-            completed: state.completed,
-            mistakes: state.mistakes,
-            answered: state.answered,
-            correctAnswers: state.correctAnswers,
-            activeDays: state.activeDays,
-            pendingTrain: state.pendingTrain,
-            unlockedAchievements: state.unlockedAchievements,
-            lastAchievementCheck: state.lastAchievementCheck,
-          };
-          await upsertProgress(data as Parameters<typeof upsertProgress>[0]);
-        } catch (e) {
-          console.error("Failed to sync to server:", e);
-        }
+      syncToServer: async () => {
+        // No auth backend — this app uses localStorage only
+        return;
       },
     }),
     { name: "sharptech-academy-v1" },

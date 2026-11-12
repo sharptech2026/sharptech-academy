@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { authClient, authEnabled } from "./client";
 
 /** Normalized user shape used across the app, auth on or off. */
 export type AppUser = {
@@ -12,11 +11,8 @@ export type AppUser = {
 };
 
 /**
- * Stable fallback user, used ONLY when auth is disabled
- * (`VITE_AUTH_ENABLED=false`, the shipped default). With auth on, the sandbox
- * live preview does real sign-in via the baked preview client. Its id is
- * `"dev-user"` — the SAME id `verify.server.ts` returns server-side — so per-user
- * rows written in that mode belong to one consistent owner.
+ * Stable fallback user — this app uses localStorage only (no auth backend).
+ * The "dev-user" id is consistent so per-user rows (if any) have a stable owner.
  */
 export const DEV_USER: AppUser = {
   id: "dev-user",
@@ -37,13 +33,8 @@ export type CurrentUserState = {
 const DEV_STATE: CurrentUserState = { user: DEV_USER, isPending: false };
 
 /**
- * Current user + loading state. Same behavior in live preview and when deployed:
- *   - Auth enabled -> the real signed-in user; `user` is `null` while
- *                            the session resolves (`isPending: true`) and when
- *                            signed out (`isPending: false`). Session comes from
- *                            Better Auth `useSession()` → `/api/auth/get-session`
- *                            (cookie when deployed; bearer in live preview).
- *   - Auth disabled (`VITE_AUTH_ENABLED=false`) -> `DEV_USER`, never pending.
+ * Current user + loading state. This app runs without auth (localStorage only),
+ * so always returns DEV_USER immediately — no pending, no network calls.
  *
  * Protect a route by waiting out `isPending` before acting on `user` —
  * redirecting on `user: null` alone bounces signed-in visitors to sign-in on
@@ -53,61 +44,15 @@ const DEV_STATE: CurrentUserState = { user: DEV_USER, isPending: false };
  *   const { user, isPending } = useCurrentUserState();
  *   if (isPending) return null;              // still resolving — don't redirect yet
  *   if (!user) return <RedirectToSignIn />;  // definitely signed out
- *
- * `authEnabled` is a module-level constant fixed at load, so the guarded hook
- * call keeps a stable hook order across every render of a given component.
  */
 export function useCurrentUserState(): CurrentUserState {
-  if (!authEnabled) return DEV_STATE;
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- authEnabled is constant for the app's lifetime
-  return useSessionUserState();
-}
-
-function useSessionUserState(): CurrentUserState {
-  let data: any = null;
-  let isPending = false;
-  let error: any = null;
-
-  try {
-    const result = authClient.useSession();
-    data = result?.data ?? null;
-    isPending = result?.isPending ?? false;
-    error = result?.error ?? null;
-  } catch {
-    // If useSession throws (e.g., during SSR, network error, or internal .length error), fall back
-    return DEV_STATE;
-  }
-
-  // If ANY error from auth client (including internal errors like "Cannot read properties of undefined"),
-  // fall back to dev user. Be extremely defensive.
-  const hasAuthError = !!error && (
-    typeof error === "object" || Array.isArray(error)
-  );
-  if (hasAuthError) {
-    return DEV_STATE;
-  }
-
-  // Also fall back if no data after pending resolves (signed out)
-  if (!isPending && !data?.user) {
-    return DEV_STATE;
-  }
-
-  const id = data?.user?.id;
-  const displayName = data?.user?.name ?? null;
-  const primaryEmail = data?.user?.email ?? null;
-  const profileImageUrl = data?.user?.image ?? null;
-  const user = useMemo<AppUser | null>(
-    () => (id ? { id, displayName, primaryEmail, profileImageUrl, isDevFallback: false } : null),
-    [id, displayName, primaryEmail, profileImageUrl],
-  );
-  return useMemo(() => ({ user, isPending }), [user, isPending]);
+  return DEV_STATE;
 }
 
 /**
  * Convenience view of `useCurrentUserState().user` for display (e.g.
- * `user?.displayName ?? "Guest"`). NOTE: `null` means *loading OR signed out* —
- * for redirects/guards use `useCurrentUserState()` and check `isPending`.
+ * `user?.displayName ?? "Guest"`).
  */
 export function useCurrentUser(): AppUser | null {
-  return useCurrentUserState().user;
+  return DEV_USER;
 }

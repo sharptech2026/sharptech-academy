@@ -34,8 +34,12 @@ export const authClient = createAuthClient({
  * (`.grok/app-env.json`), which selects the dev user (see `use-current-user`);
  * with the key removed, sign-in is real in preview (baked preview client) and
  * when deployed (injected per-app client).
+ *
+ * FORCED FALSE: This app uses localStorage only (no auth backend). Vercel injects
+ * VITE_AUTH_ENABLED="true" by default, which breaks the build with 404 errors
+ * from /api/auth/get-session. Hardcode to false to prevent auth client errors.
  */
-export const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
+export const authEnabled = false; // import.meta.env.VITE_AUTH_ENABLED !== "false";
 
 /** The upstream providers to render sign-in buttons for. */
 export { GROK_PROVIDERS };
