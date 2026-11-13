@@ -29,6 +29,24 @@ export function isMigrationFile(path) {
   return path.endsWith(".sql");
 }
 
+const AUTH_ONLY_MIGRATIONS = new Set(["0001_auth.sql", "0003_social.sql"]);
+
+/**
+ * Select migrations that are valid for the current authentication mode.
+ * The social schema depends on Better Auth's `user` table, so both it and the
+ * auth schema must stay out of auth-disabled databases. This only controls
+ * future application; it never drops tables already present in a database.
+ * @param {Iterable<string>} paths
+ * @param {boolean} authEnabled
+ * @returns {string[]}
+ */
+export function eligibleMigrationPaths(paths, authEnabled) {
+  const files = [...paths].filter(isMigrationFile);
+  return authEnabled
+    ? files
+    : files.filter((path) => !AUTH_ONLY_MIGRATIONS.has(migrationName(path)));
+}
+
 /**
  * Migrations in `paths` that are not yet in `applied`, in apply order.
  * Non-`.sql` entries (a `readdir` also yields `migrations/auth/`) are dropped.

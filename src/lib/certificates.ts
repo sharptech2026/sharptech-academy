@@ -12,6 +12,19 @@ export interface Certificate {
   certificateNumber: string;
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character] ?? character;
+  });
+}
+
 const COURSE_NAMES: Record<CourseId, string> = {
   js: "JavaScript",
   py: "Python",
@@ -226,7 +239,7 @@ export function getCertificateHTML(certificate: Certificate): string {
       </div>
       <div class="main">
         <div class="awarded">Este certifica que</div>
-        <div class="student-name">${certificate.name}</div>
+        <div class="student-name">${escapeHtml(certificate.name)}</div>
         <div class="awarded">concluiu com sucesso o percurso de</div>
         <div class="course-badge">
           <span class="course-icon">${icon}</span>
@@ -256,7 +269,7 @@ export function getCertificateHTML(certificate: Certificate): string {
         </div>
       </div>
       <div style="text-align: center; margin-top: 16px; font-size: 11px; color: #9aabc2;">
-        <span class="number">${certificate.certificateNumber}</span>
+        <span class="number">${escapeHtml(certificate.certificateNumber)}</span>
         <span style="margin-left: 24px;">Emitido a ${date}</span>
       </div>
     </div>

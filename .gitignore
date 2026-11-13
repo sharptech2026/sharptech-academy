@@ -7,10 +7,9 @@ build/
 .netlify/
 .vercel/
 
-# Environment files
-.env
-.env.local
-.env.*.local
+# Environment files (keep secrets and deployment-specific values out of Git)
+.env*
+!.env.example
 
 # Logs
 *.log

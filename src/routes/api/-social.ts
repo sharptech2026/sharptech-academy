@@ -28,7 +28,6 @@ export type Friendship = {
 export type PublicUser = {
   id: string;
   name: string;
-  email: string;
   displayName: string | null;
   avatarUrl: string | null;
   xp: number;
@@ -72,23 +71,24 @@ const updateProfileSchema = z.object({
 });
 
 const friendRequestSchema = z.object({
-  userId: z.string().uuid(),
+  // Better Auth user IDs are opaque strings, not guaranteed UUIDs.
+  userId: z.string().trim().min(1).max(128),
 });
 
 const updateFriendshipSchema = z.object({
   friendshipId: z.string().uuid(),
-  action: z.enum(["accept", "decline", "block", "remove"]),
+  action: z.enum(["accept", "decline", "block"]),
 });
 
 const activityQuerySchema = z.object({
-  limit: z.coerce.number().min(1).max(50).default(20),
-  offset: z.coerce.number().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().min(0).max(100_000).default(0),
   type: z.string().optional(),
 });
 
 const leaderboardQuerySchema = z.object({
   period: z.enum(["weekly", "monthly", "all_time"]).default("weekly"),
-  limit: z.coerce.number().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 const settingsSchema = z.object({
@@ -102,9 +102,28 @@ const settingsSchema = z.object({
 });
 
 const searchUsersSchema = z.object({
-  q: z.string().min(1).max(100),
+  q: z.string().trim().min(1).max(100),
   limit: z.coerce.number().min(1).max(20).default(10),
 });
+
+// JSONB is returned as an object by node-postgres and PGlite, but some drivers
+// / older adapters may return serialized text. Accept both without throwing.
+function asJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
 
 // Helper functions
 async function getPublicUser(userId: string): Promise<PublicUser | null> {
@@ -112,13 +131,12 @@ async function getPublicUser(userId: string): Promise<PublicUser | null> {
   const result = await sql.query<{
     id: string;
     name: string;
-    email: string;
     display_name: string | null;
     avatar_url: string | null;
     xp: number | null;
     streak: number | null;
   }>(
-    `SELECT u.id, u.name, u.email, up.display_name, up.avatar_url, p.xp, p.streak
+    `SELECT u.id, u.name, up.display_name, up.avatar_url, p.xp, p.streak
      FROM "user" u
      LEFT JOIN user_profiles up ON u.id = up.user_id
      LEFT JOIN progress p ON u.id = p.user_id
@@ -130,7 +148,6 @@ async function getPublicUser(userId: string): Promise<PublicUser | null> {
   return {
     id: row.id,
     name: row.name,
-    email: row.email,
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
     xp: row.xp || 0,
@@ -244,11 +261,22 @@ export const updateProfile = createServerFn({ method: "POST" })
     const userId = context.userId;
     await ensureProfile(userId);
 
-    const fields = Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined);
+    const columnMap: Record<string, string> = {
+      displayName: "display_name",
+      bio: "bio",
+      location: "location",
+      website: "website",
+      avatarUrl: "avatar_url",
+    };
+    const fields = Object.keys(columnMap).filter(
+      (key) => data[key as keyof typeof data] !== undefined,
+    );
     if (fields.length === 0) return { success: true };
 
-    const setClause = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
-    const values = fields.map((f) => data[f as keyof typeof data]);
+    const setClause = fields
+      .map((field, index) => `${columnMap[field]} = $${index + 2}`)
+      .join(", ");
+    const values = fields.map((field) => data[field as keyof typeof data]);
 
     const sql = await getSql();
     await sql.query(
@@ -270,19 +298,19 @@ export const searchUsers = createServerFn({ method: "POST" })
     const result = await sql.query<{
       id: string;
       name: string;
-      email: string;
       display_name: string | null;
       avatar_url: string | null;
       xp: number | null;
       streak: number | null;
     }>(
-      `SELECT u.id, u.name, u.email, up.display_name, up.avatar_url, p.xp, p.streak
+      `SELECT u.id, u.name, up.display_name, up.avatar_url, p.xp, p.streak
        FROM "user" u
        LEFT JOIN user_profiles up ON u.id = up.user_id
+       LEFT JOIN user_settings us ON u.id = us.user_id
        LEFT JOIN progress p ON u.id = p.user_id
        WHERE u.id != $1
          AND (u.name ILIKE $2 OR u.email ILIKE $2 OR up.display_name ILIKE $2)
-         AND (up.public_profile IS NULL OR up.public_profile = true)
+         AND (us.public_profile IS NULL OR us.public_profile = true)
        LIMIT $3`,
       [userId, `%${q}%`, limit],
     );
@@ -290,7 +318,6 @@ export const searchUsers = createServerFn({ method: "POST" })
     return result.map((row) => ({
       id: row.id,
       name: row.name,
-      email: row.email,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
       xp: row.xp || 0,
@@ -310,8 +337,18 @@ export const sendFriendRequest = createServerFn({ method: "POST" })
       throw new Error("Não podes adicionar-te a ti mesmo");
     }
 
-    // Check if already friends or pending
+    // Do not allow requests to unknown or private accounts.
     const sql = await getSql();
+    const target = await sql.query<{ id: string }>(
+      `SELECT u.id
+       FROM "user" u
+       LEFT JOIN user_settings us ON us.user_id = u.id
+       WHERE u.id = $1 AND (us.public_profile IS NULL OR us.public_profile = true)`,
+      [targetId],
+    );
+    if (target.length === 0) throw new Error("Utilizador não encontrado");
+
+    // Check if already friends or pending
     const existing = await sql.query(
       `SELECT * FROM friendships
        WHERE (requester_id = $1 AND addressee_id = $2)
@@ -425,13 +462,12 @@ export const getFriends = createServerFn({ method: "GET" })
     const result = await sql.query<{
       id: string;
       name: string;
-      email: string;
       display_name: string | null;
       avatar_url: string | null;
       xp: number | null;
       streak: number | null;
     }>(
-      `SELECT u.id, u.name, u.email, up.display_name, up.avatar_url, p.xp, p.streak
+      `SELECT u.id, u.name, up.display_name, up.avatar_url, p.xp, p.streak
        FROM friendships f
        JOIN "user" u ON (u.id = f.requester_id OR u.id = f.addressee_id) AND u.id != $1
        LEFT JOIN user_profiles up ON u.id = up.user_id
@@ -444,7 +480,6 @@ export const getFriends = createServerFn({ method: "GET" })
     return result.map((row) => ({
       id: row.id,
       name: row.name,
-      email: row.email,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
       xp: row.xp || 0,
@@ -465,13 +500,12 @@ export const getFriendRequests = createServerFn({ method: "GET" })
       created_at: string;
       user_id: string;
       name: string;
-      email: string;
       display_name: string | null;
       avatar_url: string | null;
       xp: number | null;
       streak: number | null;
     }>(
-      `SELECT f.id, f.created_at, u.id as user_id, u.name, u.email, up.display_name, up.avatar_url, p.xp, p.streak
+      `SELECT f.id, f.created_at, u.id as user_id, u.name, up.display_name, up.avatar_url, p.xp, p.streak
        FROM friendships f
        JOIN "user" u ON u.id = f.requester_id
        LEFT JOIN user_profiles up ON u.id = up.user_id
@@ -487,7 +521,6 @@ export const getFriendRequests = createServerFn({ method: "GET" })
       user: {
         id: row.user_id,
         name: row.name,
-        email: row.email,
         displayName: row.display_name,
         avatarUrl: row.avatar_url,
         xp: row.xp || 0,
@@ -524,11 +557,10 @@ export const getActivities = createServerFn({ method: "POST" })
         payload: string;
         created_at: string;
         name: string;
-        email: string;
         display_name: string | null;
         avatar_url: string | null;
       }>(
-        `SELECT a.*, u.name, u.email, up.display_name, up.avatar_url
+        `SELECT a.*, u.name, up.display_name, up.avatar_url
          FROM activities a
          JOIN "user" u ON u.id = a.user_id
          LEFT JOIN user_profiles up ON u.id = up.user_id
@@ -542,12 +574,11 @@ export const getActivities = createServerFn({ method: "POST" })
         id: row.id,
         userId: row.user_id,
         type: row.type,
-        payload: row.payload ? JSON.parse(row.payload) : {},
+        payload: asJsonObject(row.payload),
         createdAt: row.created_at,
         user: {
           id: row.user_id,
           name: row.name,
-          email: row.email,
           displayName: row.display_name,
           avatarUrl: row.avatar_url,
           xp: 0,
@@ -567,11 +598,10 @@ export const getActivities = createServerFn({ method: "POST" })
       payload: string;
       created_at: string;
       name: string;
-      email: string;
       display_name: string | null;
       avatar_url: string | null;
     }>(
-      `SELECT a.*, u.name, u.email, up.display_name, up.avatar_url
+      `SELECT a.*, u.name, up.display_name, up.avatar_url
        FROM activities a
        JOIN "user" u ON u.id = a.user_id
        LEFT JOIN user_profiles up ON u.id = up.user_id
@@ -586,12 +616,11 @@ export const getActivities = createServerFn({ method: "POST" })
       id: row.id,
       userId: row.user_id,
       type: row.type,
-      payload: row.payload ? JSON.parse(row.payload) : {},
+      payload: asJsonObject(row.payload),
       createdAt: row.created_at,
       user: {
         id: row.user_id,
         name: row.name,
-        email: row.email,
         displayName: row.display_name,
         avatarUrl: row.avatar_url,
         xp: 0,
@@ -615,12 +644,13 @@ export const getLeaderboard = createServerFn({ method: "POST" })
 
     if (period === "all_time") {
       query = `
-        SELECT u.id, u.name, u.email, up.display_name, up.avatar_url, p.xp, p.streak,
-               ROW_NUMBER() OVER (ORDER BY p.xp DESC) as rank
+        SELECT u.id, u.name, up.display_name, up.avatar_url, p.xp, p.streak,
+               ROW_NUMBER() OVER (ORDER BY p.xp DESC NULLS LAST) as rank
         FROM "user" u
         LEFT JOIN user_profiles up ON u.id = up.user_id
+        LEFT JOIN user_settings us ON u.id = us.user_id
         LEFT JOIN progress p ON u.id = p.user_id
-        WHERE (up.show_on_leaderboard IS NULL OR up.show_on_leaderboard = true)
+        WHERE (us.show_on_leaderboard IS NULL OR us.show_on_leaderboard = true)
         ORDER BY p.xp DESC NULLS LAST
         LIMIT $1
       `;
@@ -631,12 +661,14 @@ export const getLeaderboard = createServerFn({ method: "POST" })
         : "DATE_TRUNC('month', NOW())";
 
       query = `
-        SELECT le.*, u.name, u.email, up.display_name, up.avatar_url, p.streak
+        SELECT le.*, u.name, up.display_name, up.avatar_url, p.streak
         FROM leaderboard_entries le
         JOIN "user" u ON u.id = le.user_id
         LEFT JOIN user_profiles up ON u.id = up.user_id
+        LEFT JOIN user_settings us ON u.id = us.user_id
         LEFT JOIN progress p ON u.id = p.user_id
         WHERE le.period = $1 AND le.period_start = ${periodStart}
+          AND (us.show_on_leaderboard IS NULL OR us.show_on_leaderboard = true)
         ORDER BY le.xp DESC
         LIMIT $2
       `;
@@ -647,7 +679,6 @@ export const getLeaderboard = createServerFn({ method: "POST" })
       id: string;
       user_id: string;
       name: string;
-      email: string;
       display_name: string | null;
       avatar_url: string | null;
       xp: number | null;
@@ -662,7 +693,6 @@ export const getLeaderboard = createServerFn({ method: "POST" })
       user: {
         id: row.user_id || row.id,
         name: row.name,
-        email: row.email,
         displayName: row.display_name,
         avatarUrl: row.avatar_url,
         xp: row.xp || 0,
@@ -675,7 +705,11 @@ export const getLeaderboard = createServerFn({ method: "POST" })
     let userRank = null;
     if (period === "all_time") {
       const rankResult = await sql.query<{ rank: string }>(
-        `SELECT COUNT(*) + 1 as rank FROM progress WHERE xp > (SELECT xp FROM progress WHERE user_id = $1)`,
+        `SELECT COUNT(*) + 1 as rank
+         FROM progress p
+         LEFT JOIN user_settings us ON us.user_id = p.user_id
+         WHERE p.xp > (SELECT xp FROM progress WHERE user_id = $1)
+           AND (us.show_on_leaderboard IS NULL OR us.show_on_leaderboard = true)`,
         [userId],
       );
       userRank = parseInt(rankResult[0]?.rank || "0") || null;
@@ -712,7 +746,7 @@ export const getNotifications = createServerFn({ method: "GET" })
       type: row.type,
       title: row.title,
       message: row.message,
-      data: row.data ? JSON.parse(row.data) : {},
+      data: asJsonObject(row.data),
       read: row.read,
       createdAt: row.created_at,
     }));
@@ -751,7 +785,12 @@ export const getSettings = createServerFn({ method: "GET" })
       publicProfile: boolean;
       showOnLeaderboard: boolean;
     }>(
-      `SELECT * FROM user_settings WHERE user_id = $1`,
+      `SELECT theme, sound_enabled AS "soundEnabled",
+              daily_reminder_enabled AS "dailyReminderEnabled",
+              daily_reminder_time AS "dailyReminderTime", language,
+              public_profile AS "publicProfile",
+              show_on_leaderboard AS "showOnLeaderboard"
+       FROM user_settings WHERE user_id = $1`,
       [userId],
     );
 
@@ -773,11 +812,24 @@ export const updateSettings = createServerFn({ method: "POST" })
     const userId = context.userId;
     await ensureSettings(userId);
 
-    const fields = Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined);
+    const columnMap: Record<string, string> = {
+      theme: "theme",
+      soundEnabled: "sound_enabled",
+      dailyReminderEnabled: "daily_reminder_enabled",
+      dailyReminderTime: "daily_reminder_time",
+      language: "language",
+      publicProfile: "public_profile",
+      showOnLeaderboard: "show_on_leaderboard",
+    };
+    const fields = Object.keys(columnMap).filter(
+      (key) => data[key as keyof typeof data] !== undefined,
+    );
     if (fields.length === 0) return { success: true };
 
-    const setClause = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
-    const values = fields.map((f) => data[f as keyof typeof data]);
+    const setClause = fields
+      .map((field, index) => `${columnMap[field]} = $${index + 2}`)
+      .join(", ");
+    const values = fields.map((field) => data[field as keyof typeof data]);
 
     const sql = await getSql();
     await sql.query(
@@ -790,7 +842,7 @@ export const updateSettings = createServerFn({ method: "POST" })
 
 export const getPublicProfile = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(z.object({ userId: z.string().uuid() }))
+  .validator(z.object({ userId: z.string().trim().min(1).max(128) }))
   .handler(async ({ context, data }) => {
     const { userId: targetId } = data;
     const currentUserId = context.userId;
@@ -799,7 +851,6 @@ export const getPublicProfile = createServerFn({ method: "POST" })
     const result = await sql.query<{
       id: string;
       name: string;
-      email: string;
       display_name: string | null;
       bio: string | null;
       location: string | null;
@@ -812,7 +863,7 @@ export const getPublicProfile = createServerFn({ method: "POST" })
       public_profile: boolean | null;
       relationship: string;
     }>(
-      `SELECT u.id, u.name, u.email, up.display_name, up.bio, up.location, up.website, up.avatar_url,
+      `SELECT u.id, u.name, up.display_name, up.bio, up.location, up.website, up.avatar_url,
               p.xp, p.streak, p.best_streak,
               (SELECT COUNT(*) FROM friendships WHERE (requester_id = u.id OR addressee_id = u.id) AND status = 'accepted') as friends_count,
               CASE WHEN $1 = u.id THEN 'self'
@@ -820,9 +871,10 @@ export const getPublicProfile = createServerFn({ method: "POST" })
                    WHEN EXISTS (SELECT 1 FROM friendships WHERE requester_id = $1 AND addressee_id = u.id AND status = 'pending') THEN 'request_sent'
                    WHEN EXISTS (SELECT 1 FROM friendships WHERE requester_id = u.id AND addressee_id = $1 AND status = 'pending') THEN 'request_received'
                    ELSE 'none' END as relationship,
-              up.public_profile
+              us.public_profile
        FROM "user" u
        LEFT JOIN user_profiles up ON u.id = up.user_id
+       LEFT JOIN user_settings us ON u.id = us.user_id
        LEFT JOIN progress p ON u.id = p.user_id
        WHERE u.id = $2`,
       [currentUserId, targetId],
@@ -839,7 +891,6 @@ export const getPublicProfile = createServerFn({ method: "POST" })
     return {
       userId: row.id,
       name: row.name,
-      email: row.email,
       displayName: row.display_name,
       bio: row.bio,
       location: row.location,

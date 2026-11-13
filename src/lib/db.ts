@@ -1,4 +1,4 @@
-import { pendingMigrations } from "../../scripts/migration-plan.mjs";
+import { eligibleMigrationPaths, pendingMigrations } from "../../scripts/migration-plan.mjs";
 
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite";
@@ -146,7 +146,9 @@ async function createPgliteSql(): Promise<Sql> {
       "select name from _migrations",
     );
     const done = doneRows.rows.map((r) => r.name);
-    for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) {
+    const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
+    const eligiblePaths = eligibleMigrationPaths(Object.keys(migrations), authEnabled);
+    for (const { name, path } of pendingMigrations(eligiblePaths, done)) {
       // Apply + record atomically (parity with scripts/migrate.mjs) so a failed
       // statement can't leave a file half-applied but untracked.
       await pg.transaction(async (tx) => {

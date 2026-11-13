@@ -16,7 +16,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
-import { pendingMigrations } from "./migration-plan.mjs";
+import { eligibleMigrationPaths, pendingMigrations } from "./migration-plan.mjs";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -37,8 +37,10 @@ async function main() {
     return;
   }
   // An app with no schema of its own must not pay for a database connection.
-  if (pendingMigrations(entries, []).length === 0) {
-    console.log("[migrate] no migrations — nothing to do.");
+  const authEnabled = process.env.VITE_AUTH_ENABLED !== "false";
+  const eligibleEntries = eligibleMigrationPaths(entries, authEnabled);
+  if (pendingMigrations(eligibleEntries, []).length === 0) {
+    console.log("[migrate] no migrations for the current auth mode — nothing to do.");
     return;
   }
 
@@ -53,7 +55,7 @@ async function main() {
     );
 
     let count = 0;
-    for (const { name } of pendingMigrations(entries, applied)) {
+    for (const { name } of pendingMigrations(eligibleEntries, applied)) {
       const text = await readFile(join(migrationsDir, name), "utf8");
       try {
         await client.query("BEGIN");

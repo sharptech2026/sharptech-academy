@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { isMigrationFile, migrationName, pendingMigrations } from "./migration-plan.mjs";
+import { eligibleMigrationPaths, isMigrationFile, migrationName, pendingMigrations } from "./migration-plan.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
 const AUTH_MIGRATION = "0001_auth.sql";
@@ -56,10 +56,17 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
   assert.deepEqual(pendingMigrations(["auth", "README.md"], []), []);
 });
 
-test("the auth schema ships outside the globbed directory", () => {
+test("auth-disabled mode skips auth and social schemas without deleting existing data", () => {
   const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
+  const entries = readdirSync(migrationsDir);
+  const withoutAuth = pendingMigrations(eligibleMigrationPaths(entries, false), []).map(({ name }) => name);
+  const withAuth = pendingMigrations(eligibleMigrationPaths(entries, true), []).map(({ name }) => name);
+  assert.deepEqual(withoutAuth, ["0002_progress.sql"]);
+  assert.deepEqual(withAuth, ["0001_auth.sql", "0002_progress.sql", "0003_social.sql"]);
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+  const pair = authSchemaCopy(projectRoot());
+  assert.ok(pair);
+  assert.equal(pair.copy, pair.source);
 });
 
 test("this workspace's auth schema copy is byte-identical to its source", () => {
@@ -87,4 +94,15 @@ test("the copy check reads both files and catches an edit", () => {
   writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t (x int);\n");
   const drifted = authSchemaCopy(root);
   assert.notEqual(drifted.copy, drifted.source);
+});
+
+
+test("eligibleMigrationPaths filters only auth-dependent files when auth is off", () => {
+  const paths = ["0001_auth.sql", "0002_progress.sql", "0003_social.sql", "auth"];
+  assert.deepEqual(eligibleMigrationPaths(paths, false), ["0002_progress.sql"]);
+  assert.deepEqual(eligibleMigrationPaths(paths, true), [
+    "0001_auth.sql",
+    "0002_progress.sql",
+    "0003_social.sql",
+  ]);
 });

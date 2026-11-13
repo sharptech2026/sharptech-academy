@@ -301,7 +301,9 @@ parent.postMessage({ src: "sharp", token: "${token}", error: String(error && err
     };
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { src?: string; token?: string; error?: string | null; output?: string };
-      if (!data || data.src !== "sharp" || data.token !== token) return;
+      // Accept results only from the sandboxed execution frame that received
+      // this run's nonce; other windows cannot spoof console output.
+      if (event.source !== iframe.contentWindow || !data || data.src !== "sharp" || data.token !== token) return;
       finish({ output: data.output ?? "", error: data.error ?? null, html: null });
     };
     const timer = window.setTimeout(() => {
