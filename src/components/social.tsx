@@ -156,7 +156,7 @@ function SocialPage() {
     if (!isAuthenticated) return;
     try {
       const data = await getNotifications();
-      setNotifications(data || []);
+      setNotifications(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("Failed to load notifications:", e);
     }

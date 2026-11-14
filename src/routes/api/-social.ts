@@ -3,6 +3,11 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import { z } from "zod";
 
+// Serializable JSON type for TanStack Start
+export type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
+export type JsonObject = { [key: string]: JsonValue };
+export type JsonArray = JsonValue[];
+
 // Types
 export type UserProfile = {
   userId: string;
@@ -39,7 +44,7 @@ export type Activity = {
   id: string;
   userId: string;
   type: string;
-  payload: Record<string, unknown>;
+  payload: JsonObject;
   createdAt: string;
   user?: PublicUser;
 };
@@ -56,7 +61,7 @@ export type Notification = {
   type: string;
   title: string;
   message: string | null;
-  data: Record<string, unknown>;
+  data: JsonObject;
   read: boolean;
   createdAt: string;
 };
@@ -108,15 +113,15 @@ const searchUsersSchema = z.object({
 
 // JSONB is returned as an object by node-postgres and PGlite, but some drivers
 // / older adapters may return serialized text. Accept both without throwing.
-function asJsonObject(value: unknown): Record<string, unknown> {
+function asJsonObject(value: unknown): JsonObject {
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+    return value as JsonObject;
   }
   if (typeof value === "string") {
     try {
       const parsed: unknown = JSON.parse(value);
       return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
+        ? (parsed as JsonObject)
         : {};
     } catch {
       return {};
