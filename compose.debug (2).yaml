@@ -1,0 +1,6 @@
+services:
+  sharptechacademy:
+    image: sharptechacademy
+    build:
+      context: .
+      dockerfile: ./Dockerfile
